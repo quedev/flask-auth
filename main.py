@@ -65,7 +65,7 @@ def register():
         # login and authenticate user after adding to database
         login_user(new_user)
 
-        return redirect(url_for('secrets', name=new_user.name))
+        return redirect(url_for('secrets'))
     return render_template("register.html")
 
 
@@ -88,8 +88,7 @@ def login():
 @app.route('/secrets')
 @login_required
 def secrets():
-    name=request.args.get('name')
-    return render_template("secrets.html", name=name)
+    return render_template("secrets.html", name=current_user.name)
 
 
 @app.route('/logout')
