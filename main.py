@@ -8,9 +8,8 @@ from flask_login import UserMixin, login_user, LoginManager, login_required, cur
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret-key-goes-here'
 
+
 # CREATE DATABASE
-
-
 class Base(DeclarativeBase):
     pass
 
@@ -19,10 +18,19 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
 db = SQLAlchemy(model_class=Base)
 db.init_app(app)
 
+# CONFIGURE LOGIN MANAGER
+login_manager = LoginManager()
+login_manager.init_app(app)
+
+
+# Create a user_loader callback
+@login_manager.user_loader
+def load_user(user_id):
+    return db.get_or_404(User, user_id)
+
+
 # CREATE TABLE IN DB
-
-
-class User(db.Model):
+class User(UserMixin, db.Model):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(100), unique=True)
     password: Mapped[str] = mapped_column(String(100))
@@ -40,25 +48,45 @@ def home():
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    if request.method == 'GET':
-        return render_template("register.html")
-    else:
+    if request.method == 'POST':
+        hashed_pswd = generate_password_hash(
+            password=request.form.get('password'),
+            method='pbkdf2:sha256:600000',
+            salt_length=8
+        )
         new_user = User(
             name=request.form.get('name'),
             email=request.form.get('email'),
-            password=request.form.get('password'),
+            password=hashed_pswd,
         )
         db.session.add(new_user)
         db.session.commit()
+
+        # login and authenticate user after adding to database
+        login_user(new_user)
+
         return redirect(url_for('secrets', name=new_user.name))
+    return render_template("register.html")
 
 
-@app.route('/login')
+@app.route('/login', methods=['GET', 'POST'])
 def login():
+    if request.method == 'POST':
+        email = request.form.get("email")
+        password = request.form.get("password")
+
+        user = db.session.execute(db.select(User).where(User.email==email)).scalar()
+
+        # check entered password hashed by user against stored hashed password
+        if check_password_hash(user.password, password):
+            login_user(user)
+            return redirect(url_for("secrets"))
+
     return render_template("login.html")
 
 
 @app.route('/secrets')
+@login_required
 def secrets():
     name=request.args.get('name')
     return render_template("secrets.html", name=name)
@@ -66,10 +94,12 @@ def secrets():
 
 @app.route('/logout')
 def logout():
-    pass
+    logout_user()
+    return redirect(url_for("home"))
 
 
 @app.route('/download')
+@login_required
 def download():
     return send_from_directory('static/files', 'cheat_sheet.pdf')
 
